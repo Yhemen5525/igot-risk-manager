@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cryptocurrency Risk Management</title>
+    <style>
+        table {
+            width: 100%;
+        }
+
+        th, td {
+            padding: 8px;
+            text-align: left;
+        }
+    </style>
+    <script>
+        let currentPrice = 0;
+        let buyAt = 0;
+        let sellAt = 0;
+        let historicalPrices = [];
+        let symbolPair = 'BTCUSDT';
+
+        function fetchCurrentPrice() {
+            return fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${symbolPair}`)
+                .then(response => response.json())
+                .then(data => parseFloat(data.price));
+        }
+
+        function fetchHistoricalData() {
+            const url = 'https://api.binance.com/api/v3/klines';
+            const params = {
+                symbol: symbolPair,
+                interval: '1d',
+                limit: 14
+            };
+            const query = Object.keys(params).map(key => `${encodeURIComponent(key)}=${encodeURIComponent(params[key])}`).join('&');
+            return fetch(`${url}?${query}`)
+                .then(response => response.json())
+                .then(data => {
+                    historicalPrices = data.map(item => parseFloat(item[4]));
+                    return historicalPrices;
+                });
+        }
+
+        function calculateATR() {
+            const trueRanges = [];
+            for (let i = 1; i < historicalPrices.length; i++) {
+                const high = historicalPrices[i - 1];
+                const low = historicalPrices[i];
+                const close = historicalPrices[i];
+                const trueRange = Math.max(high - low, Math.abs(high - close), Math.abs(low - close));
+                trueRanges.push(trueRange);
+            }
+            const averageTrueRange = trueRanges.reduce((sum, value) => sum + value, 0) / trueRanges.length;
+            return averageTrueRange;
+        }
+
+        function calculateRiskManagement(atr, scalingFactor) {
+            const scaledBuyAt = currentPrice - (2 * atr * scalingFactor);
+            const scaledSellAt = currentPrice + (3 * atr * scalingFactor);
+            buyAt = isNaN(scaledBuyAt) ? 0 : scaledBuyAt;
+            sellAt = isNaN(scaledSellAt) ? 0 : scaledSellAt;
+        }
+
+        function updateDisplay() {
+            document.getElementById('current-price').textContent = currentPrice.toFixed(2);
+            document.getElementById('buy-at').textContent = buyAt.toFixed(2);
+            document.getElementById('sell-at').textContent = sellAt.toFixed(2);
+        }
+
+        function updateError(errorMessage) {
+            document.getElementById('error-message').textContent = errorMessage;
+        }
+
+        function fetchData() {
+            fetchCurrentPrice()
+                .then(price => {
+                    currentPrice = price;
+                    return fetchHistoricalData();
+                })
+                .then(() => {
+                    const atr = calculateATR();
+                    const scalingFactor = parseFloat(document.getElementById('scaling-factor-input').value) || 1;
+                    calculateRiskManagement(atr, scalingFactor);
+                    updateDisplay();
+                    document.getElementById('symbol-pair').textContent = `Symbol Pair: ${symbolPair}`;
+                })
+                .catch(error => {
+                    updateError('An error occurred while fetching data: ' + error.message);
+                });
+        }
+
+        function saveToTable() {
+            const table = document.getElementById('record-table');
+            const newRow = table.insertRow(-1);
+            newRow.insertCell().textContent = symbolPair;
+            newRow.insertCell().textContent = currentPrice.toFixed(2);
+            newRow.insertCell().textContent = buyAt.toFixed(2);
+            newRow.insertCell().textContent = sellAt.toFixed(2);
+            newRow.insertCell().textContent = new Date().toLocaleString();
+            const deleteButton = document.createElement('button');
+            deleteButton.textContent = 'Delete';
+            deleteButton.addEventListener('click', function () {
+                table.deleteRow(newRow.rowIndex);
+                saveToStorage();
+            });
+            newRow.insertCell().appendChild(deleteButton);
+        }
+
+        function clearTable() {
+            const table = document.getElementById('record-table');
+            while (table.rows.length > 1) {
+                table.deleteRow(1);
+            }
+        }
+
+        function loadFromStorage() {
+            const storedData = localStorage.getItem('recordedData');
+            if (storedData) {
+                const table = document.getElementById('record-table');
+                const data = JSON.parse(storedData);
+                data.forEach(item => {
+                    const newRow = table.insertRow(-1);
+                    newRow.insertCell().textContent = item.symbolPair;
+                    newRow.insertCell().textContent = item.currentPrice.toFixed(2);
+                    newRow.insertCell().textContent = item.buyAt.toFixed(2);
+                    newRow.insertCell().textContent = item.sellAt.toFixed(2);
+                    newRow.insertCell().textContent = item.date;
+                    const deleteButton = document.createElement('button');
+                    deleteButton.textContent = 'Delete';
+                    deleteButton.addEventListener('click', function () {
+                        table.deleteRow(newRow.rowIndex);
+                        saveToStorage();
+                    });
+                    newRow.insertCell().appendChild(deleteButton);
+                });
+            }
+        }
+
+        function saveToStorage() {
+            const table = document.getElementById('record-table');
+            const data = [];
+            for (let i = 1; i < table.rows.length; i++) {
+                const row = table.rows[i];
+                const item = {
+                    symbolPair: row.cells[0].textContent,
+                    currentPrice: parseFloat(row.cells[1].textContent),
+                    buyAt: parseFloat(row.cells[2].textContent),
+                    sellAt: parseFloat(row.cells[3].textContent),
+                    date: row.cells[4].textContent
+                };
+                data.push(item);
+            }
+            localStorage.setItem('recordedData', JSON.stringify(data));
+        }
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const fetchButton = document.getElementById('fetch-button');
+            const saveButton = document.getElementById('save-button');
+            const clearButton = document.getElementById('clear-button');
+            const symbolSelect = document.getElementById('symbol-select');
+
+            fetchButton.addEventListener('click', fetchData);
+            saveButton.addEventListener('click', function () {
+                saveToTable();
+                saveToStorage();
+            });
+            clearButton.addEventListener('click', function () {
+                clearTable();
+                saveToStorage();
+            });
+            symbolSelect.addEventListener('change', function () {
+                symbolPair = symbolSelect.value;
+            });
+
+            loadFromStorage();
+            fetchData();
+        });
+    </script>
+</head>
+<body>
+    <h3>Cryptocurrency Risk Management</h3>
+    <p id="symbol-pair"></p>
+    <div>
+        <p>Current Price: <span id="current-price"></span></p>
+        <p>Buy At: <span id="buy-at"></span></p>
+        <p>Sell At: <span id="sell-at"></span></p>
+        <input type="number" id="scaling-factor-input" placeholder="Scaling Factor" step="0.01">
+        <button id="fetch-button">Fetch Data</button>
+        <button id="save-button">Save to Table</button>
+        <button id="clear-button">Clear Table</button>
+        <select id="symbol-select">
+            <option value="BTCUSDT">BTCUSDT</option>
+            <option value="ETHUSDT">ETHUSDT</option>
+            <option value="BNBUSDT">BNBUSDT</option>
+            <!-- Add more symbol pairs as needed -->
+        </select>
+        <table id="record-table">
+            <thead>
+                <tr>
+                    <th>Symbol Pair</th>
+                    <th>Current Price</th>
+                    <th>Buy At</th>
+                    <th>Sell At</th>
+                    <th>Date</th>
+                    <th>Delete</th>
+                </tr>
+            </thead>
+            <tbody>
+                <!-- Table rows will be dynamically added here -->
+            </tbody>
+        </table>
+        <p id="error-message"></p>
+    </div>
+</body>
+</html>
